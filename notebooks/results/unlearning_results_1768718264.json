@@ -1,0 +1,28 @@
+{
+    "experiment_info": {
+        "timestamp": "2026-01-18T12:07:44.578257",
+        "dataset": "MNIST",
+        "model": "SimpleCNN",
+        "deletion_ratio": 0.05,
+        "device": "cpu"
+    },
+    "exact_unlearning": {
+        "deleted_loss": 0.05661181124184835,
+        "time_seconds": 65.09736776351929
+    },
+    "approx_unlearning": {
+        "method": "gradient_ascent",
+        "hyperparameters": {
+            "lr": 0.0001,
+            "steps": 3,
+            "optimizer": "SGD"
+        },
+        "metrics": {
+            "deleted_loss": 0.09687153701769545,
+            "retained_loss": 0.07942074602814736,
+            "deleted_confidence": 0.9611787504338204,
+            "retained_confidence": 0.9646938021736916
+        },
+        "time_seconds": 2.1156859397888184
+    }
+}

@@ -1,0 +1,25 @@
+{
+    "experiment_info": {
+        "timestamp": "2026-01-19T11:44:25.247921",
+        "dataset": "MNIST",
+        "model": "SimpleCNN",
+        "deletion_ratio": 0.05,
+        "device": "cpu"
+    },
+    "first_epoch_reversal": {
+        "method": "first_epoch_reversal",
+        "hyperparameters": {
+            "rewind_epoch": 1,
+            "total_training_epochs": 5,
+            "retrain_epochs": 3,
+            "optimizer": "Adam",
+            "learning_rate": 0.001
+        },
+        "metrics": {
+            "deleted_loss": 0.07448671747771825,
+            "retained_loss": 0.028162270316887568,
+            "retained_accuracy": 0.9912631578947368
+        },
+        "time_seconds": 37.28353404998779
+    }
+}

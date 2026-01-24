@@ -1,0 +1,37 @@
+# =====================
+# Python
+# =====================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# =====================
+# Virtual environments
+# =====================
+muvenv/
+venv/
+.env/
+
+# =====================
+# Jupyter
+# =====================
+.ipynb_checkpoints/
+
+# =====================
+# Experiment artifacts
+# =====================
+notebooks/data/
+notebooks/models/
+
+# =====================
+# OS / Editor
+# =====================
+.DS_Store
+.vscode/
+.idea/
+
+# =====================
+# Logs
+# =====================
+*.log
