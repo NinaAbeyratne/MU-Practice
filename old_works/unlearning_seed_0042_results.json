@@ -1,0 +1,196 @@
+{
+    "experiment_info": {
+        "timestamp": "2026-03-05T23:17:05.842984",
+        "seed": 42,
+        "dataset": "MNIST",
+        "model": "SimpleCNN",
+        "deletion_ratio": 0.01,
+        "batch_size": 64,
+        "learning_rate": 0.001,
+        "epochs": 15,
+        "loss": "CrossEntropyLoss",
+        "device": "cpu",
+        "important_note": "Baseline trained on ALL data, then split for evaluation"
+    },
+    "baseline_model": {
+        "train_time_seconds": 248.9341688156128,
+        "trained_on": "All 60000 training samples",
+        "delete_set_accuracy": 0.9983333333333333,
+        "delete_set_loss": 0.007048131868941709,
+        "retain_set_accuracy": 0.999006734006734,
+        "test_accuracy": 0.9831,
+        "per_class_accuracy": {
+            "retain_set": {
+                "0": 1.0,
+                "1": 0.9995506964205482,
+                "2": 0.9984750931887496,
+                "3": 0.9995067412035514,
+                "4": 0.9980952380952381,
+                "5": 0.9953392990305742,
+                "6": 1.0,
+                "7": 1.0,
+                "8": 0.9994819547573821,
+                "9": 0.9991500934897162
+            },
+            "delete_set": {
+                "0": 1.0,
+                "1": 1.0,
+                "2": 1.0,
+                "3": 1.0,
+                "4": 1.0,
+                "5": 1.0,
+                "6": 1.0,
+                "7": 1.0,
+                "8": 0.9833333333333333,
+                "9": 1.0
+            }
+        }
+    },
+    "exact_unlearning": {
+        "method": "Retrain from scratch on retain set only",
+        "train_time_seconds": 231.3921298980713,
+        "delete_set_accuracy": 0.9766666666666667,
+        "delete_set_loss": 0.08918818807924253,
+        "forgetting_score": 0.021666666666666612,
+        "retain_set_accuracy": 0.9977441077441077,
+        "test_accuracy": 0.9826,
+        "per_class_accuracy": {
+            "retain_set": {
+                "0": 0.9996584116140051,
+                "1": 0.9857720533173581,
+                "2": 0.9994916977295832,
+                "3": 0.9986846432094706,
+                "4": 0.9982683982683983,
+                "5": 0.9996271439224459,
+                "6": 0.9993182205556502,
+                "7": 0.9993552546744036,
+                "8": 0.9991365912623036,
+                "9": 0.9998300186979432
+            },
+            "delete_set": {
+                "0": 0.9852941176470589,
+                "1": 0.9846153846153847,
+                "2": 0.9821428571428571,
+                "3": 1.0,
+                "4": 0.9552238805970149,
+                "5": 0.9824561403508771,
+                "6": 0.9803921568627451,
+                "7": 0.9836065573770492,
+                "8": 0.9333333333333333,
+                "9": 0.9848484848484849
+            }
+        },
+        "per_class_forgetting_score": {
+            "0": 0.014705882352941124,
+            "1": 0.01538461538461533,
+            "2": 0.017857142857142905,
+            "3": 0.0,
+            "4": 0.04477611940298509,
+            "5": 0.01754385964912286,
+            "6": 0.019607843137254943,
+            "7": 0.016393442622950838,
+            "8": 0.04999999999999993,
+            "9": 0.015151515151515138
+        }
+    },
+    "approx_unlearning": {
+        "method": "Gradient ascent on delete set",
+        "hyperparameters": {
+            "lr": 0.0001,
+            "steps": 3,
+            "optimizer": "SGD"
+        },
+        "train_time_seconds": 0.4806981086730957,
+        "delete_set_accuracy": 0.9983333333333333,
+        "delete_set_loss": 0.0068346674204804005,
+        "forgetting_score": 0.0,
+        "retain_set_accuracy": 0.999006734006734,
+        "utility_loss": 0.0,
+        "test_accuracy": 0.9831,
+        "per_class_accuracy": {
+            "retain_set": {
+                "0": 1.0,
+                "1": 0.9995506964205482,
+                "2": 0.9984750931887496,
+                "3": 0.9995067412035514,
+                "4": 0.9980952380952381,
+                "5": 0.9953392990305742,
+                "6": 1.0,
+                "7": 1.0,
+                "8": 0.9994819547573821,
+                "9": 0.9991500934897162
+            },
+            "delete_set": {
+                "0": 1.0,
+                "1": 1.0,
+                "2": 1.0,
+                "3": 1.0,
+                "4": 1.0,
+                "5": 1.0,
+                "6": 1.0,
+                "7": 1.0,
+                "8": 0.9833333333333333,
+                "9": 1.0
+            }
+        },
+        "per_class_forgetting_score": {
+            "0": 0.0,
+            "1": 0.0,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0,
+            "5": 0.0,
+            "6": 0.0,
+            "7": 0.0,
+            "8": 0.0,
+            "9": 0.0
+        },
+        "per_class_utility_loss": {
+            "0": 0.0,
+            "1": 0.0,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0,
+            "5": 0.0,
+            "6": 0.0,
+            "7": 0.0,
+            "8": 0.0,
+            "9": 0.0
+        },
+        "distance_metrics": {
+            "l2_absolute": 38.9312858581543,
+            "l2_relative": 1.3245519193997952,
+            "metric_definition": "Global L2 norm over all parameters"
+        }
+    },
+    "efficiency_comparison": {
+        "exact_time_seconds": 231.3921298980713,
+        "approx_time_seconds": 0.4806981086730957,
+        "speedup_factor": 481.3668406909256
+    },
+    "privacy_evaluation_mia": {
+        "baseline_model": {
+            "mia_accuracy": 0.9302833333333334,
+            "tpr": 0.9388888888888889,
+            "fpr": 0.9216666666666666
+        },
+        "after_unlearning": {
+            "mia_accuracy": 0.93035,
+            "tpr": 0.938956228956229,
+            "fpr": 0.9216666666666666
+        },
+        "privacy_gain": -6.666666666665932e-05
+    },
+    "data_split_info": {
+        "total_training_samples": 60000,
+        "delete_set_size": 600,
+        "retain_set_size": 59400,
+        "test_set_size": 10000,
+        "split_saved_to": "../data_splits/split_seed_0042.npz"
+    },
+    "saved_models": {
+        "baseline_model_path": "../models/baseline_seed_0042.pt",
+        "gold_model_path": "../models/gold_exact_seed_0042.pt",
+        "approx_model_path": "../models/approx_unlearned_seed_0042.pt"
+    }
+}
