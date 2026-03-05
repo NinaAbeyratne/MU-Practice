@@ -1,0 +1,1230 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "e99473ba",
+   "metadata": {},
+   "source": [
+    "# Centralized Machine Learning Unlearning Evaluation\n",
+    "\n",
+    "This notebook evaluates machine unlearning in a centralized setting:\n",
+    "- **Exact unlearning**: Retrain model from scratch on retain set only\n",
+    "- **Approximate unlearning**: Gradient-ascent method on delete set\n",
+    "- **Evaluation**: Forgetting effectiveness, utility preservation, privacy leakage (MIA)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "1f43dcf7",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# ============================================================================\n",
+    "# DATA LOADING & SPLITTING\n",
+    "# ============================================================================\n",
+    "\n",
+    "# Use standard MNIST preprocessing\n",
+    "transform = transforms.Compose([\n",
+    "    transforms.ToTensor(),\n",
+    "    transforms.Normalize((0.1307,), (0.3081,))  # MNIST mean/std\n",
+    "])\n",
+    "\n",
+    "print(\"Loading MNIST dataset...\")\n",
+    "train_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)\n",
+    "test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)\n",
+    "\n",
+    "print(f\"\\nTotal training data: {len(train_dataset)}\")\n",
+    "print(f\"Total test data: {len(test_dataset)}\")\n",
+    "\n",
+    "# Split training data: retain (95%) and delete (5%)\n",
+    "num_delete = int(0.05 * len(train_dataset))\n",
+    "num_retain = len(train_dataset) - num_delete\n",
+    "\n",
+    "indices = np.random.permutation(len(train_dataset))\n",
+    "delete_idx = indices[:num_delete]\n",
+    "retain_idx = indices[num_delete:]\n",
+    "\n",
+    "retain_set = Subset(train_dataset, retain_idx)\n",
+    "delete_set = Subset(train_dataset, delete_idx)\n",
+    "\n",
+    "print(f\"\\nTrain split:\")\n",
+    "print(f\"  Retain set (keep): {len(retain_set)} samples (95%)\")\n",
+    "print(f\"  Delete set (forget): {len(delete_set)} samples (5%)\")\n",
+    "\n",
+    "# Create dataloaders\n",
+    "retain_loader = DataLoader(retain_set, batch_size=64, shuffle=True, num_workers=0)\n",
+    "delete_loader = DataLoader(delete_set, batch_size=64, shuffle=True, num_workers=0)\n",
+    "test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, num_workers=0)\n",
+    "\n",
+    "print(f\"\\nHoldout test set: {len(test_dataset)} samples (for final evaluation)\")\n",
+    "\n",
+    "<VSCode.Cell id=\"#VSC-4bb445b2\" language=\"python\">\n",
+    "print(f\"Total dataset size: {len(dataset)}\")\n",
+    "print(f\"Retain set size: {len(retain_set)}\")\n",
+    "print(f\"Delete set size: {len(delete_set)}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "3f3bd95c",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# ============================================================================\n",
+    "# MODEL DEFINITION\n",
+    "# ============================================================================\n",
+    "\n",
+    "<VSCode.Cell id=\"#VSC-fc2ef6f4\" language=\"python\">\n",
+    "class SimpleCNN(nn.Module):\n",
+    "    def __init__(self):\n",
+    "        super().__init__()\n",
+    "        self.net = nn.Sequential(\n",
+    "            nn.Conv2d(1, 32, 3, 1),\n",
+    "            nn.ReLU(),\n",
+    "            nn.MaxPool2d(2),\n",
+    "            nn.Flatten(),\n",
+    "            nn.Linear(5408, 10)\n",
+    "        )\n",
+    "\n",
+    "    def forward(self, x):\n",
+    "        return self.net(x)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "id": "9f122f22",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class SimpleCNN(nn.Module):\n",
+    "    def __init__(self):\n",
+    "        super().__init__()\n",
+    "        self.net = nn.Sequential(\n",
+    "            nn.Conv2d(1, 32, 3, 1),\n",
+    "            nn.ReLU(),\n",
+    "            nn.MaxPool2d(2),\n",
+    "            nn.Flatten(),\n",
+    "            nn.Linear(5408, 10)\n",
+    "        )\n",
+    "\n",
+    "    def forward(self, x):\n",
+    "        return self.net(x)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "id": "39ff3d64",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# def train(model, loader, epochs=5):\n",
+    "#     optimizer = optim.Adam(model.parameters(), lr=1e-3)\n",
+    "#     criterion = nn.CrossEntropyLoss()\n",
+    "#     model.train()\n",
+    "\n",
+    "#     for _ in range(epochs):\n",
+    "#         for x, y in loader:\n",
+    "#             optimizer.zero_grad()\n",
+    "#             loss = criterion(model(x), y)\n",
+    "#             loss.backward()\n",
+    "#             optimizer.step()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "id": "7f45011b",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# device = torch.device(\"cpu\")  \n",
+    "# model = SimpleCNN().to(device)\n",
+    "# print(model)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "id": "00aa307a",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# model = SimpleCNN()\n",
+    "# train(model, DataLoader(dataset, batch_size=64, shuffle=True))\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "id": "e80f3aa0",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def train(model, loader, epochs=5, device=torch.device(\"cpu\")):\n",
+    "    optimizer = optim.Adam(model.parameters(), lr=1e-3)\n",
+    "    criterion = nn.CrossEntropyLoss()\n",
+    "    model.train()\n",
+    "\n",
+    "    for epoch in range(1, epochs+1):\n",
+    "        running_loss = 0.0\n",
+    "        for batch_idx, (x, y) in enumerate(loader):\n",
+    "            x, y = x.to(device), y.to(device)\n",
+    "            optimizer.zero_grad()\n",
+    "            output = model(x)\n",
+    "            loss = criterion(output, y)\n",
+    "            loss.backward()\n",
+    "            optimizer.step()\n",
+    "            running_loss += loss.item()\n",
+    "\n",
+    "            # Print every 100 batches\n",
+    "            if (batch_idx + 1) % 100 == 0:\n",
+    "                print(f\"Epoch [{epoch}/{epochs}], Batch [{batch_idx+1}/{len(loader)}], Loss: {loss.item():.4f}\")\n",
+    "\n",
+    "        # Print epoch summary\n",
+    "        avg_epoch_loss = running_loss / len(loader)\n",
+    "        print(f\"--- Epoch {epoch} completed. Avg Loss: {avg_epoch_loss:.4f} ---\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "id": "695e1a95",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "SimpleCNN(\n",
+      "  (net): Sequential(\n",
+      "    (0): Conv2d(1, 32, kernel_size=(3, 3), stride=(1, 1))\n",
+      "    (1): ReLU()\n",
+      "    (2): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)\n",
+      "    (3): Flatten(start_dim=1, end_dim=-1)\n",
+      "    (4): Linear(in_features=5408, out_features=10, bias=True)\n",
+      "  )\n",
+      ")\n"
+     ]
+    }
+   ],
+   "source": [
+    "model = SimpleCNN().to(device)\n",
+    "print(model)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "263447e2",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def train(model, loader, epochs=5, device=torch.device(\"cpu\")):\n",
+    "    optimizer = optim.Adam(model.parameters(), lr=1e-3)\n",
+    "    criterion = nn.CrossEntropyLoss()\n",
+    "    model.train()\n",
+    "\n",
+    "    for epoch in range(1, epochs+1):\n",
+    "        running_loss = 0.0\n",
+    "        for batch_idx, (x, y) in enumerate(loader):\n",
+    "            x, y = x.to(device), y.to(device)\n",
+    "            optimizer.zero_grad()\n",
+    "            output = model(x)\n",
+    "            loss = criterion(output, y)\n",
+    "            loss.backward()\n",
+    "            optimizer.step()\n",
+    "            running_loss += loss.item()\n",
+    "\n",
+    "            # Print every 100 batches\n",
+    "            if (batch_idx + 1) % 100 == 0:\n",
+    "                print(f\"Epoch [{epoch}/{epochs}], Batch [{batch_idx+1}/{len(loader)}], Loss: {loss.item():.4f}\")\n",
+    "\n",
+    "        # Print epoch summary\n",
+    "        avg_epoch_loss = running_loss / len(loader)\n",
+    "        print(f\"--- Epoch {epoch} completed. Avg Loss: {avg_epoch_loss:.4f} ---\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "11664872",
+   "metadata": {},
+   "source": [
+    "Retraining From Scratch - Exact Unlearning"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "id": "1e9e7e11",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Training exact_model on retain set only...\n",
+      "Epoch [1/5], Batch [100/891], Loss: 0.2595\n",
+      "Epoch [1/5], Batch [200/891], Loss: 0.3359\n",
+      "Epoch [1/5], Batch [300/891], Loss: 0.1805\n",
+      "Epoch [1/5], Batch [400/891], Loss: 0.1001\n",
+      "Epoch [1/5], Batch [500/891], Loss: 0.0963\n",
+      "Epoch [1/5], Batch [600/891], Loss: 0.1329\n",
+      "Epoch [1/5], Batch [700/891], Loss: 0.0471\n",
+      "Epoch [1/5], Batch [800/891], Loss: 0.0778\n",
+      "--- Epoch 1 completed. Avg Loss: 0.1992 ---\n",
+      "Epoch [2/5], Batch [100/891], Loss: 0.0445\n",
+      "Epoch [2/5], Batch [200/891], Loss: 0.0231\n",
+      "Epoch [2/5], Batch [300/891], Loss: 0.0145\n",
+      "Epoch [2/5], Batch [400/891], Loss: 0.1226\n",
+      "Epoch [2/5], Batch [500/891], Loss: 0.0416\n",
+      "Epoch [2/5], Batch [600/891], Loss: 0.0466\n",
+      "Epoch [2/5], Batch [700/891], Loss: 0.0272\n",
+      "Epoch [2/5], Batch [800/891], Loss: 0.0719\n",
+      "--- Epoch 2 completed. Avg Loss: 0.0782 ---\n",
+      "Epoch [3/5], Batch [100/891], Loss: 0.0958\n",
+      "Epoch [3/5], Batch [200/891], Loss: 0.0989\n",
+      "Epoch [3/5], Batch [300/891], Loss: 0.0219\n",
+      "Epoch [3/5], Batch [400/891], Loss: 0.0389\n",
+      "Epoch [3/5], Batch [500/891], Loss: 0.0877\n",
+      "Epoch [3/5], Batch [600/891], Loss: 0.0515\n",
+      "Epoch [3/5], Batch [700/891], Loss: 0.0604\n",
+      "Epoch [3/5], Batch [800/891], Loss: 0.0291\n",
+      "--- Epoch 3 completed. Avg Loss: 0.0594 ---\n",
+      "Epoch [4/5], Batch [100/891], Loss: 0.0178\n",
+      "Epoch [4/5], Batch [200/891], Loss: 0.0173\n",
+      "Epoch [4/5], Batch [300/891], Loss: 0.0219\n",
+      "Epoch [4/5], Batch [400/891], Loss: 0.0606\n",
+      "Epoch [4/5], Batch [500/891], Loss: 0.1267\n",
+      "Epoch [4/5], Batch [600/891], Loss: 0.0776\n",
+      "Epoch [4/5], Batch [700/891], Loss: 0.0569\n",
+      "Epoch [4/5], Batch [800/891], Loss: 0.0382\n",
+      "--- Epoch 4 completed. Avg Loss: 0.0492 ---\n",
+      "Epoch [5/5], Batch [100/891], Loss: 0.0231\n",
+      "Epoch [5/5], Batch [200/891], Loss: 0.0036\n",
+      "Epoch [5/5], Batch [300/891], Loss: 0.0299\n",
+      "Epoch [5/5], Batch [400/891], Loss: 0.1611\n",
+      "Epoch [5/5], Batch [500/891], Loss: 0.0472\n",
+      "Epoch [5/5], Batch [600/891], Loss: 0.0052\n",
+      "Epoch [5/5], Batch [700/891], Loss: 0.0189\n",
+      "Epoch [5/5], Batch [800/891], Loss: 0.1627\n",
+      "--- Epoch 5 completed. Avg Loss: 0.0414 ---\n",
+      "Exact unlearning completed in 65.10 seconds\n"
+     ]
+    }
+   ],
+   "source": [
+    "exact_model = SimpleCNN()\n",
+    "print(\"Training exact_model on retain set only...\")\n",
+    "\n",
+    "start = time.time()\n",
+    "train(exact_model, retain_loader)\n",
+    "exact_time = time.time() - start\n",
+    "print(f\"Exact unlearning completed in {exact_time:.2f} seconds\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "aeca4b24",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "markdown",
+   "id": "f8e850a9",
+   "metadata": {},
+   "source": [
+    "# ============================================================================\n",
+    "# 1. BASELINE MODEL: Train on retain set only (ground truth baseline)\n",
+    "# ============================================================================"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "ea8b5e65",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "model = SimpleCNN().to(device)\n",
+    "print(\"Model created:\")\n",
+    "print(model)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "806d0d6b",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "print(\"Training baseline model on retain set only for 1 epoch...\")\n",
+    "start = time.time()\n",
+    "train(model, retain_loader, epochs=1, device=device)\n",
+    "train_time = time.time() - start\n",
+    "print(f\"\\nTraining completed in {train_time:.2f} seconds\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "541cd593",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Baseline evaluation before unlearning\n",
+    "def evaluate(model, loader, device=torch.device(\"cpu\")):\n",
+    "    model.eval()\n",
+    "    correct, total, loss_sum = 0, 0, 0.0\n",
+    "    criterion = nn.CrossEntropyLoss()\n",
+    "    with torch.no_grad():\n",
+    "        for x, y in loader:\n",
+    "            x, y = x.to(device), y.to(device)\n",
+    "            outputs = model(x)\n",
+    "            loss_sum += criterion(outputs, y).item()\n",
+    "            _, preds = torch.max(outputs, 1)\n",
+    "            correct += (preds == y).sum().item()\n",
+    "            total += y.size(0)\n",
+    "    return correct/total, loss_sum/len(loader)\n",
+    "\n",
+    "# Evaluate on retain and delete sets BEFORE unlearning\n",
+    "retain_acc_before, retain_loss_before = evaluate(model, retain_loader, device)\n",
+    "delete_acc_before, delete_loss_before = evaluate(model, delete_loader, device)\n",
+    "\n",
+    "print(f\"Retain acc before: {retain_acc_before:.4f}, loss: {retain_loss_before:.4f}\")\n",
+    "print(f\"Delete acc before: {delete_acc_before:.4f}, loss: {delete_loss_before:.4f}\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "id": "93e3bfff",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def gradient_ascent_unlearning(model, delete_loader, lr=1e-4, steps=1, device=torch.device(\"cpu\")):\n",
+    "    optimizer = optim.SGD(model.parameters(), lr=lr)\n",
+    "    criterion = nn.CrossEntropyLoss()\n",
+    "    model.train()\n",
+    "\n",
+    "    for step in range(1, steps+1):\n",
+    "        running_loss = 0.0\n",
+    "        for batch_idx, (x, y) in enumerate(delete_loader):\n",
+    "            x, y = x.to(device), y.to(device)\n",
+    "            optimizer.zero_grad()\n",
+    "            output = model(x)\n",
+    "            loss = criterion(output, y)\n",
+    "            (-loss).backward()  # gradient ASCENT\n",
+    "            optimizer.step()\n",
+    "            running_loss += loss.item()\n",
+    "\n",
+    "            # Print every 50 batches\n",
+    "            if (batch_idx + 1) % 50 == 0:\n",
+    "                print(f\"Step [{step}/{steps}], Batch [{batch_idx+1}/{len(delete_loader)}], Loss: {loss.item():.4f}\")\n",
+    "\n",
+    "        avg_loss = running_loss / len(delete_loader)\n",
+    "        print(f\"--- Step {step} completed. Avg Loss on deleted data: {avg_loss:.4f} ---\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 20,
+   "id": "4cf24bd4",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Starting gradient-based unlearning...\n",
+      "--- Step 1 completed. Avg Loss on deleted data: 0.0960 ---\n",
+      "--- Step 2 completed. Avg Loss on deleted data: 0.0964 ---\n",
+      "--- Step 3 completed. Avg Loss on deleted data: 0.0966 ---\n",
+      "Approximate unlearning completed in 2.12 seconds\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Copy the trained baseline model\n",
+    "approx_model = SimpleCNN().to(device)\n",
+    "approx_model.load_state_dict(model.state_dict())  # start from baseline\n",
+    "print(\"Starting gradient-based unlearning...\")\n",
+    "\n",
+    "# Run gradient-based unlearning\n",
+    "start_time = time.time()\n",
+    "gradient_ascent_unlearning(approx_model, delete_loader, lr=1e-4, steps=3, device=device)\n",
+    "approx_time = time.time() - start_time\n",
+    "\n",
+    "print(f\"Approximate unlearning completed in {approx_time:.2f} seconds\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "5768c59f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Compare gradient-ascent unlearned model vs retrained model\n",
+    "def model_distance(model1, model2):\n",
+    "    total = 0\n",
+    "    for p1, p2 in zip(model1.parameters(), model2.parameters()):\n",
+    "        total += torch.norm(p1 - p2).item()\n",
+    "    return total\n",
+    "\n",
+    "distance = model_distance(approx_model, exact_model)\n",
+    "print(f\"Distance to retrained model: {distance:.4f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "id": "0f763c8e",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Forgetting Metrics\n",
+    "\n",
+    "def avg_loss(model, loader, device=torch.device(\"cpu\")):\n",
+    "    model.eval()\n",
+    "    loss_fn = nn.CrossEntropyLoss()\n",
+    "    total_loss = 0.0\n",
+    "    with torch.no_grad():\n",
+    "        for x, y in loader:\n",
+    "            x, y = x.to(device), y.to(device)\n",
+    "            output = model(x)\n",
+    "            total_loss += loss_fn(output, y).item()\n",
+    "    return total_loss / len(loader)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "id": "be7bb1fe",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Exact model loss on deleted data: 0.0566\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Exact unlearning on deleted set\n",
+    "exact_deleted_loss = avg_loss(exact_model, delete_loader, device=device)\n",
+    "print(f\"Exact model loss on deleted data: {exact_deleted_loss:.4f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "id": "eac84079",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Approx model loss on deleted data: 0.0969\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Approx unlearning on deleted set\n",
+    "approx_deleted_loss = avg_loss(approx_model, delete_loader, device=device)\n",
+    "print(f\"Approx model loss on deleted data: {approx_deleted_loss:.4f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "id": "9d81d5f4",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Approx model loss on retained data: 0.0794\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Approx model on retained set (for comparison)\n",
+    "approx_retained_loss = avg_loss(approx_model, retain_loader, device=device)\n",
+    "print(f\"Approx model loss on retained data: {approx_retained_loss:.4f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "cdb12a59",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Final ACCURACY evaluations on both models\n",
+    "\n",
+    "# Approx model accuracies (after gradient ascent)\n",
+    "approx_delete_acc, approx_delete_loss_final = evaluate(approx_model, delete_loader, device=device)\n",
+    "approx_retain_acc, approx_retain_loss_final = evaluate(approx_model, retain_loader, device=device)\n",
+    "\n",
+    "print(f\"Approx model - Delete accuracy: {approx_delete_acc:.4f}, loss: {approx_delete_loss_final:.4f}\")\n",
+    "print(f\"Approx model - Retain accuracy: {approx_retain_acc:.4f}, loss: {approx_retain_loss_final:.4f}\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "7d4c38ca",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Exact model (retrained from scratch) accuracies for comparison\n",
+    "exact_delete_acc, exact_delete_loss_final = evaluate(exact_model, delete_loader, device=device)\n",
+    "exact_retain_acc, exact_retain_loss_final = evaluate(exact_model, retain_loader, device=device)\n",
+    "\n",
+    "print(f\"Exact model - Delete accuracy: {exact_delete_acc:.4f}, loss: {exact_delete_loss_final:.4f}\")\n",
+    "print(f\"Exact model - Retain accuracy: {exact_retain_acc:.4f}, loss: {exact_retain_loss_final:.4f}\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "e84481a7",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# CRITICAL METRICS - Forgotten Data Analysis\n",
+    "\n",
+    "print(\"=\" * 60)\n",
+    "print(\"FORGOTTEN DATA METRICS (Accuracy-based)\")\n",
+    "print(\"=\" * 60)\n",
+    "\n",
+    "# Delete set accuracy drop (higher = better forgetting)\n",
+    "delete_acc_drop = delete_acc_before - approx_delete_acc\n",
+    "delete_loss_increase = approx_delete_loss_final - delete_loss_before\n",
+    "\n",
+    "print(f\"\\n[Gradient Ascent Unlearning]\")\n",
+    "print(f\"Delete set accuracy BEFORE: {delete_acc_before:.4f}\")\n",
+    "print(f\"Delete set accuracy AFTER:  {approx_delete_acc:.4f}\")\n",
+    "print(f\"Accuracy drop (forgetting): {delete_acc_drop:.4f}  ← HIGHER IS BETTER\")\n",
+    "print(f\"Loss increase on forgotten: {delete_loss_increase:.4f}  ← HIGHER IS BETTER\")\n",
+    "\n",
+    "print(f\"\\n[Exact Retraining (Ground Truth)]\")\n",
+    "print(f\"Delete set accuracy AFTER:  {exact_delete_acc:.4f}\")\n",
+    "print(f\"Loss on forgotten data:     {exact_delete_loss_final:.4f}\")\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 60)\n",
+    "print(\"RETAIN SET UTILITY (Preserved Knowledge)\")\n",
+    "print(\"=\" * 60)\n",
+    "\n",
+    "# Retain set accuracy drop (lower = better utility preservation)\n",
+    "retain_acc_drop = retain_acc_before - approx_retain_acc\n",
+    "retain_loss_change = approx_retain_loss_final - retain_loss_before\n",
+    "\n",
+    "print(f\"\\n[Gradient Ascent Unlearning]\")\n",
+    "print(f\"Retain set accuracy BEFORE: {retain_acc_before:.4f}\")\n",
+    "print(f\"Retain set accuracy AFTER:  {approx_retain_acc:.4f}\")\n",
+    "print(f\"Accuracy drop (utility loss): {retain_acc_drop:.4f}  ← LOWER IS BETTER\")\n",
+    "print(f\"Loss change:                {retain_loss_change:.4f}\")\n",
+    "\n",
+    "print(f\"\\n[Exact Retraining (Ground Truth)]\")\n",
+    "print(f\"Retain set accuracy AFTER:  {exact_retain_acc:.4f}\")\n",
+    "print(f\"Loss on retained data:      {exact_retain_loss_final:.4f}\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "ac73bb99",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# DISTANCE TO FULL RETRAINING & EFFICIENCY METRICS\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 60)\n",
+    "print(\"DISTANCE TO FULL RETRAINING (Parameter Space)\")\n",
+    "print(\"=\" * 60)\n",
+    "\n",
+    "# Ensure distance is computed\n",
+    "distance_to_retrain = model_distance(approx_model, exact_model)\n",
+    "print(f\"\\n|| W_approx - W_exact || = {distance_to_retrain:.4f}\")\n",
+    "print(f\"(Lower = closer to true retraining)\")\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 60)\n",
+    "print(\"EFFICIENCY TRADE-OFF (Time)\")\n",
+    "print(\"=\" * 60)\n",
+    "\n",
+    "print(f\"\\nExact unlearning (full retraining) time: {exact_time:.2f} seconds\")\n",
+    "print(f\"Approximate unlearning (gradient ascent) time: {approx_time:.2f} seconds\")\n",
+    "\n",
+    "# Efficiency ratio\n",
+    "efficiency_ratio = exact_time / approx_time if approx_time > 0 else float('inf')\n",
+    "print(f\"\\nSpeedup: Gradient ascent is ~{efficiency_ratio:.1f}x faster than full retraining\")\n",
+    "print(f\"Time saved: {exact_time - approx_time:.2f} seconds ({((exact_time - approx_time)/exact_time * 100):.1f}% reduction)\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "d01adc0f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# COMPREHENSIVE SUMMARY TABLE\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 80)\n",
+    "print(\"COMPREHENSIVE UNLEARNING EVALUATION SUMMARY\")\n",
+    "print(\"=\" * 80)\n",
+    "\n",
+    "summary_data = {\n",
+    "    \"Metric\": [\n",
+    "        \"Delete Accuracy BEFORE\",\n",
+    "        \"Delete Accuracy AFTER\",\n",
+    "        \"Delete Accuracy Drop\",\n",
+    "        \"Delete Loss BEFORE\",\n",
+    "        \"Delete Loss AFTER\",\n",
+    "        \"Delete Loss Increase\",\n",
+    "        \"\",\n",
+    "        \"Retain Accuracy BEFORE\",\n",
+    "        \"Retain Accuracy AFTER\",\n",
+    "        \"Retain Accuracy Drop\",\n",
+    "        \"Retain Loss BEFORE\",\n",
+    "        \"Retain Loss AFTER\",\n",
+    "        \"Retain Loss Change\",\n",
+    "        \"\",\n",
+    "        \"Model Weight Distance ||W||\",\n",
+    "        \"Time (seconds)\",\n",
+    "        \"Speedup Factor\"\n",
+    "    ],\n",
+    "    \"Gradient Ascent\": [\n",
+    "        f\"{delete_acc_before:.4f}\",\n",
+    "        f\"{approx_delete_acc:.4f}\",\n",
+    "        f\"{delete_acc_drop:.4f} ✓\",\n",
+    "        f\"{delete_loss_before:.4f}\",\n",
+    "        f\"{approx_delete_loss_final:.4f}\",\n",
+    "        f\"{delete_loss_increase:.4f} ✓\",\n",
+    "        \"\",\n",
+    "        f\"{retain_acc_before:.4f}\",\n",
+    "        f\"{approx_retain_acc:.4f}\",\n",
+    "        f\"{retain_acc_drop:.4f}\",\n",
+    "        f\"{retain_loss_before:.4f}\",\n",
+    "        f\"{approx_retain_loss_final:.4f}\",\n",
+    "        f\"{retain_loss_change:.4f}\",\n",
+    "        \"\",\n",
+    "        f\"{distance_to_retrain:.4f}\",\n",
+    "        f\"{approx_time:.2f}\",\n",
+    "        f\"{efficiency_ratio:.1f}x\"\n",
+    "    ],\n",
+    "    \"Exact Retraining (Ground Truth)\": [\n",
+    "        f\"{delete_acc_before:.4f}\",\n",
+    "        f\"{exact_delete_acc:.4f}\",\n",
+    "        f\"{delete_acc_before - exact_delete_acc:.4f}\",\n",
+    "        f\"{delete_loss_before:.4f}\",\n",
+    "        f\"{exact_delete_loss_final:.4f}\",\n",
+    "        f\"{exact_delete_loss_final - delete_loss_before:.4f}\",\n",
+    "        \"\",\n",
+    "        f\"{retain_acc_before:.4f}\",\n",
+    "        f\"{exact_retain_acc:.4f}\",\n",
+    "        f\"{retain_acc_before - exact_retain_acc:.4f}\",\n",
+    "        f\"{retain_loss_before:.4f}\",\n",
+    "        f\"{exact_retain_loss_final:.4f}\",\n",
+    "        f\"{exact_retain_loss_final - retain_loss_before:.4f}\",\n",
+    "        \"\",\n",
+    "        \"0.0000 (baseline)\",\n",
+    "        f\"{exact_time:.2f}\",\n",
+    "        \"1.0x (baseline)\"\n",
+    "    ]\n",
+    "}\n",
+    "\n",
+    "import pandas as pd\n",
+    "summary_df = pd.DataFrame(summary_data)\n",
+    "print(\"\\n\" + summary_df.to_string(index=False))\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 80)\n",
+    "print(\"KEY INSIGHTS:\")\n",
+    "print(\"=\" * 80)\n",
+    "print(f\"✓ Delete Accuracy Drop:  {delete_acc_drop:.4f} (FORGETTING EFFECTIVENESS)\")\n",
+    "print(f\"✓ Retain Accuracy Drop:  {retain_acc_drop:.4f} (UTILITY PRESERVATION)\")  \n",
+    "print(f\"✓ Parameter Distance:    {distance_to_retrain:.4f} (CLOSENESS TO EXACT RETRAINING)\")\n",
+    "print(f\"✓ Speedup:              {efficiency_ratio:.1f}x (COMPUTATIONAL EFFICIENCY)\")\n",
+    "print(\"\\nTrade-off: Better forgetting & utility vs computational cost\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "id": "f147d1de",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Higher loss on deleted data means better forgetting.\n",
+      "Compare Exact vs Approx to see trade-off between privacy and efficiency.\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Quick sanity check of forgetting\n",
+    "print(\"Higher loss on deleted data means better forgetting.\")\n",
+    "print(\"Compare Exact vs Approx to see trade-off between privacy and efficiency.\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "id": "bbf473e6",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "image/png": "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8+ZNOXfunBQuXFiyZMkS0HULNprONVgeO3ZMQkNDA706sBDHIAKNYzD9aMuPhp9SpUrdctqABqAiRYpISEiInD592me8Pi5RooTfeXR8ctO7/9dx2gvMe5o6der4XWbOnDnN4K1gwYK3uVVICQ0/BCAEEscgAo1jMH3cquUnQxRB58iRQ8LDw2XNmjU+rS/6OCIiwu88Ot57erVq1SrP9OXLlzchyHsaTdvaGyypZQIAALsE/BSYnnqKjIyUevXqSYMGDUwPrqtXr5peYap79+5SunRpU6ejBgwYIM2aNZMpU6ZImzZtZOHChbJlyxaZPXu2eV5PWQ0cOFBeeeUVqVSpkglEI0eONM1h2l0eAAAg4AGoS5cucubMGXPhQi1S1tNUK1eu9BQxHz161PQMczVu3FgWLFhgurkPHz7chBztAVajRg3PNC+++KIJUX/+85/lwoUL0qRJE7NMvXAiAktPNeo1nxKecgQ4BmELPgczhixOSvqKAQAABJGAXwgRAADgTiMAAQAA6xCAAACAdQhAAADAOgQgZBrz5s0L6AUq9RIL3FAXGe3YePrpp7nEBzLUsTJmzJgkLzyckRCAMulBrB+4CYfWrVvfsXVI6QGu07nrly1bNnP176ZNm5rrPXnfgDa9EFrSjt5MWK/crtffyuwOHz7s897Jnz+/3HvvvdK3b185cOBAur8+oSXlgvm4K1SokLmu3TfffJOq5Tz44IPmenep9cYbb5gfkvgPAlAmpWHn5MmTPsOHH34oGZF+sej66TWd1q5dK507dzYXttRrOuk9W5A5vPPOO9K/f3/5+uuv5cSJE3fkNePj49N1+atXrzbH5g8//CCvvfaa7NmzR2rXrp3oavMInGA+7nSb9CK9bdu2TXSLp/S6RQS3efKi1wFC5hIZGel06NAhyefXrl3rZM+e3fn666894yZMmOAULVrUOXXqlHn8+eefO/fff79ToEABp1ChQk6bNm2cH3/80Wc5x44dc7p27ercddddTp48eZzw8HDn22+/dd599129dpTPoOP8GT16tFO7du1E4/fs2ePkyJHDeemllzzjrl+/7rzwwgtOqVKlzOs1aNDAbItLX0PX19vSpUud++67z8mZM6dTvnx5Z8yYMc6vv/5qnitXrpzPOurjlMyn9u/f7zzwwAPm+WrVqjlffvmlWcaSJUscG12+fNnJly+fs3fvXqdLly7Oq6++6vO8/p10/yxfvtypWbOm2W8NGzZ0du7cmejvp/uwYsWKZpqWLVs6R48eTXS8vP32205YWJiTJYu5VJlz5MgRp3379k7evHmd/PnzO507d/Ycy3os5c6d25k/f75nOYsWLXJy5crl7Nq1y+/2HDp0yKzvtm3bfMbfuHHDefDBB82x8ttvv6X4eEl4bOg26Trq9ur7R9ddX9PdxoTvH/c4T24+pes0aNAgz/t2yJAhTvfu3ZP9PMjMbDjuduzYYcZ98sknnnG6/q1btzavW6xYMed//ud/nDNnzng+/xMeP7pcPTZ69uxp1l/XoXLlys60adOS/e5o1qyZ079/f3Mc6fFWvHhxsy+8nT9/3unVq5dTpEgRsw+aN2/ubN++3WeacePGmfXUv5Wuw1//+le/n/sZDQEoCAOQ0gNaP8QvXLjgbN261YQN7zfYRx995Hz88cfOgQMHzJuxXbt25gNEvwDcD5577rnHhIBvvvnGTKdv7o0bNzrXrl0zQeXee+91Tp48aQYdl5oApHQbNFy4/vd//9dp3LixCW4axiZNmmQ+rDSM+AtAOl1oaKgzb9485+DBgyak6Jtfv5xUbGysJ5zpOurjlMyn+6BGjRrOww8/bN7o69evN19+Ngegd955x6lXr57596effupUqFDBuXnzZqIvIjcs6od627ZtzX6Nj4830+jfQYO5LkePoy1btpiQq39z7+NFP/T1w1+P2x9++MH8PerUqeM0adLEzKMhXMO4fni7oqKizLGhX1ga3PXD/I033khye5IKQEr/xvrcd999l6LjRXkfG7q9uh/0i0D3w+7du50nn3zSqVKlihMXF2feW0888YTZRvf9o+NvNZ/7Q0a3Td+7+rx+MemXUrAGoGA/7vRz8y9/+YsZpz9K3cChP1aHDRtmQpauzyOPPGKCh9LP9IiICKd3796e40fDj27vqFGjnO+//9756aefnA8++MD8kNTP7eQCUGhoqDmW9XP273//uwl/ui9dLVq0MN8PulydRj/7Cxcu7Pz888/meV2+fk7PmTPHBFX9UavHJAEI6UIP4pCQEPOG9R68fx3pB6a+efWDtnr16ubNkhz9daFvQveX09/+9jdzELsHeWqCTUqn018J+gtK6QeIbtPx48d9ptEQoh8E/gKQPvfaa6/5TP/+++87JUuW9Dz2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",
+      "text/plain": [
+       "<Figure size 640x480 with 1 Axes>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "plt.bar([\"Exact Deleted\", \"Approx Deleted\", \"Approx Retained\"],\n",
+    "        [exact_deleted_loss, approx_deleted_loss, approx_retained_loss])\n",
+    "plt.ylabel(\"Avg Loss\")\n",
+    "plt.title(\"Forgetting Metrics\")\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "id": "6f3831d4",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Exact unlearning time: 65.10 seconds\n",
+      "Approximate unlearning time: 2.12 seconds\n",
+      "Approx unlearning is ~30.8x faster than exact unlearning\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Efficiency Metrics (Timing)\n",
+    "print(f\"Exact unlearning time: {exact_time:.2f} seconds\")\n",
+    "print(f\"Approximate unlearning time: {approx_time:.2f} seconds\")\n",
+    "\n",
+    "# efficiency trade-off\n",
+    "efficiency_ratio = exact_time / approx_time if approx_time > 0 else float('inf')\n",
+    "print(f\"Approx unlearning is ~{efficiency_ratio:.1f}x faster than exact unlearning\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "id": "93e57889",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Privacy Metric (Membership Inference – Simplified)\n",
+    "\n",
+    "def confidence_score(model, loader, device=torch.device(\"cpu\")):\n",
+    "    \"\"\"\n",
+    "    Returns the average maximum softmax probability (confidence)\n",
+    "    Lower confidence on deleted data → better privacy\n",
+    "    \"\"\"\n",
+    "    model.eval()\n",
+    "    scores = []\n",
+    "    with torch.no_grad():\n",
+    "        for x, y in loader:\n",
+    "            x = x.to(device)\n",
+    "            output = model(x)\n",
+    "            probs = torch.softmax(output, dim=1)\n",
+    "            # max probability per sample\n",
+    "            batch_conf = probs.max(dim=1).values\n",
+    "            scores.append(batch_conf.mean().item())\n",
+    "    return float(np.mean(scores))\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "5663eda9",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Import Membership Inference Attack (MIA) from separate module\n",
+    "import sys\n",
+    "sys.path.insert(0, '..')  # Add parent directory to path\n",
+    "\n",
+    "from mia import evaluate_mia\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "8e7b7298",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# MIA EVALUATION PIPELINE - BEFORE UNLEARNING\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 80)\n",
+    "print(\"MEMBERSHIP INFERENCE ATTACK (MIA) - BEFORE UNLEARNING\")\n",
+    "print(\"=\" * 80)\n",
+    "\n",
+    "# Model was trained on retain_loader, so:\n",
+    "# Members = retain_loader (seen during training)\n",
+    "# Non-members = delete_loader (not seen during training)\n",
+    "\n",
+    "mia_before = evaluate_mia(model, retain_loader, delete_loader, threshold=None)\n",
+    "\n",
+    "print(f\"\\nUsing baseline model trained on retain set\")\n",
+    "print(f\"Members:     retain_loader (used in training)\")\n",
+    "print(f\"Non-members: delete_loader (NOT used in training)\")\n",
+    "print(f\"\\nAttack Threshold:              {mia_before['threshold']:.4f}\")\n",
+    "print(f\"Member mean confidence:        {mia_before['member_mean_confidence']:.4f}\")\n",
+    "print(f\"Non-member mean confidence:    {mia_before['non_member_mean_confidence']:.4f}\")\n",
+    "print(f\"\\nMIA Accuracy:                  {mia_before['mia_accuracy']:.4f}\")\n",
+    "print(f\"True Positive Rate (TPR):      {mia_before['tpr']:.4f}  (identified members)\")\n",
+    "print(f\"False Positive Rate (FPR):     {mia_before['fpr']:.4f}  (wrongly identified non-members)\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "4b7d9dbe",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# MIA EVALUATION PIPELINE - AFTER UNLEARNING (Gradient Ascent)\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 80)\n",
+    "print(\"MEMBERSHIP INFERENCE ATTACK (MIA) - AFTER UNLEARNING\")\n",
+    "print(\"=\" * 80)\n",
+    "\n",
+    "# After unlearning with gradient ascent:\n",
+    "# Members should still be retain_loader (wanted to keep)\n",
+    "# Non-members should be delete_loader (wanted to forget)\n",
+    "\n",
+    "mia_after = evaluate_mia(approx_model, retain_loader, delete_loader, threshold=None)\n",
+    "\n",
+    "print(f\"\\nUsing gradient-ascent unlearned model\")\n",
+    "print(f\"Members:     retain_loader (should be preserved)\")\n",
+    "print(f\"Non-members: delete_loader (should be forgotten)\")\n",
+    "print(f\"\\nAttack Threshold:              {mia_after['threshold']:.4f}\")\n",
+    "print(f\"Member mean confidence:        {mia_after['member_mean_confidence']:.4f}\")\n",
+    "print(f\"Non-member mean confidence:    {mia_after['non_member_mean_confidence']:.4f}\")\n",
+    "print(f\"\\nMIA Accuracy:                  {mia_after['mia_accuracy']:.4f}\")\n",
+    "print(f\"True Positive Rate (TPR):      {mia_after['tpr']:.4f}  (identified members)\")\n",
+    "print(f\"False Positive Rate (FPR):     {mia_after['fpr']:.4f}  (wrongly identified non-members)\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "917da21c",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# PRIVACY GAIN ANALYSIS\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 80)\n",
+    "print(\"PRIVACY GAIN FROM UNLEARNING\")\n",
+    "print(\"=\" * 80)\n",
+    "\n",
+    "# Lower MIA accuracy = better privacy (harder to attack)\n",
+    "privacy_gain_accuracy = mia_before['mia_accuracy'] - mia_after['mia_accuracy']\n",
+    "privacy_gain_fpr = mia_after['fpr'] - mia_before['fpr']  # Higher FPR is better (more false alarms)\n",
+    "privacy_gain_tpr = mia_before['tpr'] - mia_after['tpr']  # Lower TPR is better (fewer correct positives)\n",
+    "\n",
+    "non_member_conf_improvement = mia_before['non_member_mean_confidence'] - mia_after['non_member_mean_confidence']\n",
+    "\n",
+    "print(f\"\\nPrivacy Improvement (Lower attack accuracy = Better):\")\n",
+    "print(f\"  MIA Accuracy:      {mia_before['mia_accuracy']:.4f} → {mia_after['mia_accuracy']:.4f}\")\n",
+    "print(f\"  Privacy Gain:      {privacy_gain_accuracy:+.4f}  ← {'✓ BETTER' if privacy_gain_accuracy > 0 else '✗ WORSE'}\")\n",
+    "\n",
+    "print(f\"\\nAttack Detection Rates:\")\n",
+    "print(f\"  TPR (find members): {mia_before['tpr']:.4f} → {mia_after['tpr']:.4f}\")\n",
+    "print(f\"  Improvement:        {privacy_gain_tpr:+.4f}  ← {'✓ BETTER' if privacy_gain_tpr > 0 else '✗ WORSE'}\")\n",
+    "\n",
+    "print(f\"\\n  FPR (false alarms): {mia_before['fpr']:.4f} → {mia_after['fpr']:.4f}\")\n",
+    "print(f\"  Increase:           {privacy_gain_fpr:+.4f}  ← {'✓ BETTER (more confusion)' if privacy_gain_fpr > 0 else '✗ WORSE'}\")\n",
+    "\n",
+    "print(f\"\\nConfidence Changes:\")\n",
+    "print(f\"  Non-member confidence: {mia_before['non_member_mean_confidence']:.4f} → {mia_after['non_member_mean_confidence']:.4f}\")\n",
+    "print(f\"  Reduction:             {non_member_conf_improvement:+.4f}  ← {'✓ BETTER (less confidence on forgotten data)' if non_member_conf_improvement > 0 else '✗ WORSE'}\")\n",
+    "print(f\"  Member confidence:     {mia_before['member_mean_confidence']:.4f} → {mia_after['member_mean_confidence']:.4f}\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "5be9a8ef",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# MIA COMPARISON TABLE & VISUALIZATION\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 80)\n",
+    "print(\"MIA ATTACK COMPARISON TABLE\")\n",
+    "print(\"=\" * 80)\n",
+    "\n",
+    "mia_comparison = {\n",
+    "    \"Metric\": [\n",
+    "        \"MIA Accuracy\",\n",
+    "        \"True Positive Rate (TPR)\",\n",
+    "        \"False Positive Rate (FPR)\",\n",
+    "        \"Member Confidence\",\n",
+    "        \"Non-Member Confidence\",\n",
+    "        \"Confidence Gap\"\n",
+    "    ],\n",
+    "    \"Before Unlearning\": [\n",
+    "        f\"{mia_before['mia_accuracy']:.4f}\",\n",
+    "        f\"{mia_before['tpr']:.4f}\",\n",
+    "        f\"{mia_before['fpr']:.4f}\",\n",
+    "        f\"{mia_before['member_mean_confidence']:.4f}\",\n",
+    "        f\"{mia_before['non_member_mean_confidence']:.4f}\",\n",
+    "        f\"{mia_before['member_mean_confidence'] - mia_before['non_member_mean_confidence']:.4f}\"\n",
+    "    ],\n",
+    "    \"After Unlearning\": [\n",
+    "        f\"{mia_after['mia_accuracy']:.4f}\",\n",
+    "        f\"{mia_after['tpr']:.4f}\",\n",
+    "        f\"{mia_after['fpr']:.4f}\",\n",
+    "        f\"{mia_after['member_mean_confidence']:.4f}\",\n",
+    "        f\"{mia_after['non_member_mean_confidence']:.4f}\",\n",
+    "        f\"{mia_after['member_mean_confidence'] - mia_after['non_member_mean_confidence']:.4f}\"\n",
+    "    ],\n",
+    "    \"Change\": [\n",
+    "        f\"{privacy_gain_accuracy:+.4f}\",\n",
+    "        f\"{-privacy_gain_tpr:+.4f}\",\n",
+    "        f\"{privacy_gain_fpr:+.4f}\",\n",
+    "        f\"{mia_after['member_mean_confidence'] - mia_before['member_mean_confidence']:+.4f}\",\n",
+    "        f\"{mia_after['non_member_mean_confidence'] - mia_before['non_member_mean_confidence']:+.4f}\",\n",
+    "        f\"{(mia_after['member_mean_confidence'] - mia_after['non_member_mean_confidence']) - (mia_before['member_mean_confidence'] - mia_before['non_member_mean_confidence']):+.4f}\"\n",
+    "    ]\n",
+    "}\n",
+    "\n",
+    "mia_df = pd.DataFrame(mia_comparison)\n",
+    "print(\"\\n\" + mia_df.to_string(index=False))\n",
+    "\n",
+    "# Visualization\n",
+    "fig, axes = plt.subplots(1, 3, figsize=(15, 4))\n",
+    "\n",
+    "# MIA Accuracy\n",
+    "axes[0].bar([\"Before\", \"After\"], [mia_before['mia_accuracy'], mia_after['mia_accuracy']], color=['red', 'green'])\n",
+    "axes[0].set_ylabel(\"Accuracy\")\n",
+    "axes[0].set_title(\"MIA Attack Accuracy\\n(Lower = Better Privacy)\")\n",
+    "axes[0].set_ylim(0, 1)\n",
+    "axes[0].axhline(y=0.5, color='gray', linestyle='--', alpha=0.5, label='Random guessing')\n",
+    "\n",
+    "# TPR & FPR\n",
+    "axes[1].bar([\"TPR Before\", \"TPR After\", \"FPR Before\", \"FPR After\"],\n",
+    "            [mia_before['tpr'], mia_after['tpr'], mia_before['fpr'], mia_after['fpr']],\n",
+    "            color=['orange', 'lightgreen', 'red', 'lightcoral'])\n",
+    "axes[1].set_ylabel(\"Rate\")\n",
+    "axes[1].set_title(\"Attack Detection Rates\\n(Lower = Better Privacy)\")\n",
+    "axes[1].set_ylim(0, 1)\n",
+    "\n",
+    "# Confidence Scores\n",
+    "x = np.arange(2)\n",
+    "width = 0.35\n",
+    "axes[2].bar(x - width/2, [mia_before['member_mean_confidence'], mia_after['member_mean_confidence']], \n",
+    "            width, label='Member', color='blue', alpha=0.7)\n",
+    "axes[2].bar(x + width/2, [mia_before['non_member_mean_confidence'], mia_after['non_member_mean_confidence']], \n",
+    "            width, label='Non-Member', color='red', alpha=0.7)\n",
+    "axes[2].set_ylabel(\"Mean Confidence\")\n",
+    "axes[2].set_title(\"Model Confidence by Data Type\")\n",
+    "axes[2].set_xticks(x)\n",
+    "axes[2].set_xticklabels(['Before', 'After'])\n",
+    "axes[2].legend()\n",
+    "axes[2].set_ylim(0, 1)\n",
+    "\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 80)\n",
+    "print(\"PRIVACY INTERPRETATION:\")\n",
+    "print(\"=\" * 80)\n",
+    "print(\"✓ Lower MIA Accuracy = Better privacy (attacks are less successful)\")\n",
+    "print(\"✓ Lower TPR = Better privacy (fewer members correctly identified)\")\n",
+    "print(\"✓ Higher FPR = Better privacy (more false positives, more confusion)\")\n",
+    "print(\"✓ Lower non-member confidence gap = Better privacy (less distinguishable from members)\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "id": "570ef2be",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Deleted confidence (approx model): 0.9612\n",
+      "Retained confidence (approx model): 0.9647\n",
+      "Smaller gap between retained & deleted confidence = better privacy\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Compute confidence scores\n",
+    "deleted_conf = confidence_score(approx_model, delete_loader, device=device)\n",
+    "retained_conf = confidence_score(approx_model, retain_loader, device=device)\n",
+    "\n",
+    "print(f\"Deleted confidence (approx model): {deleted_conf:.4f}\")\n",
+    "print(f\"Retained confidence (approx model): {retained_conf:.4f}\")\n",
+    "print(\"Smaller gap between retained & deleted confidence = better privacy\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "id": "51189e88",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "image/png": "iVBORw0KGgoAAAANSUhEUgAAAjcAAAGzCAYAAADT4Tb9AAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjEwLjgsIGh0dHBzOi8vbWF0cGxvdGxpYi5vcmcvwVt1zgAAAAlwSFlzAAAPYQAAD2EBqD+naQAANARJREFUeJzt3QmczfX+x/HP2ElEZEuhlCRLRJa4hdxLSlokN2u6bSpSUTJpI6n8/xdZyu1eJSpa/kQXEUKutXKjouxrC1mixu//eH//95z/mZkzYw4zc2a+83o+Hoc5v/P7/c7v/M72Pt81IQiCwAAAADyRL94HAAAAkJkINwAAwCuEGwAA4BXCDQAA8ArhBgAAeIVwAwAAvEK4AQAAXiHcAAAArxBuAACAVwg3ALLda6+9ZgkJCfb999/HvO0TTzzhts0OVapUse7du2fLfeU1eg71XAJZgXAD/MeYMWPcB26jRo3yzDn5wx/+4B5z9erVo94+Z84cd7su77zzjuUmCiWhY9elRIkSVqdOHXvhhRfs6NGjlleEHv/tt98e9fbHHnssvM6+ffti3v+SJUtcSPn5558z4WiBzEG4Af7jjTfecL/Uly9fbt9++22eOS9FihRxj1ePO9o50e25VeHChW3SpEnu8uyzz1rp0qWtf//+1q1btwxtv2HDBpswYYLldnoOp02bZseOHUt125tvvnlKz7HCzZAhQ2ION0eOHLFBgwad9P0C6SHcAGb23XffuQ/pF1980cqWLeu+1OPl999/j/ollFXOO+88u/DCC92XXKRff/3V3n33XWvXrp3lVgUKFLA///nP7nLvvffavHnzrEGDBjZ16lTbsWNH1G00l7C+eEPhqGDBgpbb/fGPf7QDBw7YrFmzki3Xa16v/ex6jo8fP+5eV6JApecHyAqEG+A/JRSlSpVyH/I33nhj1HCj9iEquh8xYoS99NJLdu6551rRokWtRYsW9uWXX6aqEilevLht2rTJ2rRpY6eddppVrFjRnnzySfflGW2fI0eOdEFDX6j//ve/3e0ff/yxXXHFFW77M844w6677jr76quvwtv/7W9/c9tPnDgx2f2rlELLP/zwwww9v507d3Zf+PryCfmf//kfO3z4sN18881Rt1m9erX96U9/ctU9eqwtW7a0ZcuWpVpv3bp1dtVVV7lzdfbZZ9vTTz+d7H4i6cs39HhPP/1093xo+8ySL18+VxUnofY+Kq275ppr7KOPPnLBR8c5bty4VG1uVqxY4c7p3//+91T71ba6bcaMGe765s2b7e6773ahUfs788wz7aabboraxkglHn379nX3pede56hr166uiujgwYPuXNx///2pttu2bZvlz5/fhg4desLHXalSJWvevLlNnjw52XK9zi+55BKrVatW1O0+++wzF4xKlixpxYoVc6/1Tz/9NHy7qqMeeugh93fVqlXD1Vuhx6m/FSp1PxdffLF7fLNnz06zzc327dutV69e7r2idbXPu+66K1vDPvxAbAb+8yHfsWNHK1SokPuif/nll+1f//qXXXbZZanOzz/+8Q/75Zdf7J577nG/Qv/rv/7LfXl/8cUXVq5cufB6SUlJ7ovh8ssvt+HDh7sP9cTERFcyo5ATSSFF+7rjjjvch7qqT+bOnevCQ7Vq1dyXgEoT/vrXv1rTpk1t1apV7suwR48eNn36dOvXr5+1bt3aKleu7I5D1QT6kmjbtm2Gnt9bb73V3ceCBQvcYxF9ESqwnHXWWanWV+BQCFGwefjhh13phgKBgsMnn3wSbre0a9cuu/LKK91jHjBggPuiHj9+vPvCT0lVR6ouUhh87rnnXLDS89CsWTMXpPR4M8PGjRvd/wockdVPet7/8pe/WO/evV0oSUnBR8/FW2+9lapaS8FQ4VjHLnrtqFTklltucWFFX/Z6LDo/Cq4KCqLwovOowNqzZ0+79NJLXaj54IMPXHipW7euXX/99W7/KlVUmAlRSZuCcpcuXTL8HCsk6T4VRvWcvP322+61EypNiaRgrddf/fr13etWwVCvU70+Fi1aZA0bNnTvma+//todiwJ/mTJl3LYq/Yzcj86ZQo5uT+t5VEma9qmwp/dBjRo1XNhRWy+9FvTeBDIsAPK4FStWqCglmDNnjrt+/Pjx4Oyzzw7uv//+ZOt99913br2iRYsG27ZtCy//7LPP3PK+ffuGl3Xr1s0t69OnT3iZ9tuuXbugUKFCwd69e5Pts0SJEsGePXuS3V/dunWDs846K/jhhx/Cy9auXRvky5cv6Nq1a3jZzp07g9KlSwetW7cOjh49GtSrVy8455xzgv3795/wsbdo0SK4+OKL3d8NGjQIevXq5f7+6aef3HH+/e9/D+bPn++O8e233w5v16FDB3f7xo0bw8t27NgR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",
+      "text/plain": [
+       "<Figure size 640x480 with 1 Axes>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# for privacy\n",
+    "plt.bar([\"Deleted\", \"Retained\"], [deleted_conf, retained_conf], color=['blue','green'])\n",
+    "plt.ylabel(\"Avg Confidence\")\n",
+    "plt.title(\"Approx Model Privacy Metric\")\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "de5762a8",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "results = {\n",
+    "    \"experiment_info\": {\n",
+    "        \"timestamp\": datetime.now().isoformat(),\n",
+    "        \"dataset\": \"MNIST\",\n",
+    "        \"model\": \"SimpleCNN\",\n",
+    "        \"deletion_ratio\": 0.05,\n",
+    "        \"device\": \"cpu\",\n",
+    "    },\n",
+    "\n",
+    "    \"exact_unlearning\": {\n",
+    "        \"deleted_loss\": exact_deleted_loss,\n",
+    "        \"time_seconds\": exact_time,\n",
+    "    },\n",
+    "\n",
+    "    \"approx_unlearning\": {\n",
+    "        \"method\": \"gradient_ascent\",\n",
+    "        \"hyperparameters\": {\n",
+    "            \"lr\": 1e-4,\n",
+    "            \"steps\": 3,\n",
+    "            \"optimizer\": \"SGD\"\n",
+    "        },\n",
+    "        \"metrics\": {\n",
+    "            \"deleted_loss\": approx_deleted_loss,\n",
+    "            \"retained_loss\": approx_retained_loss,\n",
+    "            \"deleted_confidence\": deleted_conf,\n",
+    "            \"retained_confidence\": retained_conf,\n",
+    "        },\n",
+    "        \"time_seconds\": approx_time,\n",
+    "    },\n",
+    "\n",
+    "    \"membership_inference_attack\": {\n",
+    "        \"before_unlearning\": {\n",
+    "            \"mia_accuracy\": mia_before['mia_accuracy'],\n",
+    "            \"tpr\": mia_before['tpr'],\n",
+    "            \"fpr\": mia_before['fpr'],\n",
+    "            \"member_mean_confidence\": mia_before['member_mean_confidence'],\n",
+    "            \"non_member_mean_confidence\": mia_before['non_member_mean_confidence'],\n",
+    "            \"threshold\": mia_before['threshold']\n",
+    "        },\n",
+    "        \"after_unlearning\": {\n",
+    "            \"mia_accuracy\": mia_after['mia_accuracy'],\n",
+    "            \"tpr\": mia_after['tpr'],\n",
+    "            \"fpr\": mia_after['fpr'],\n",
+    "            \"member_mean_confidence\": mia_after['member_mean_confidence'],\n",
+    "            \"non_member_mean_confidence\": mia_after['non_member_mean_confidence'],\n",
+    "            \"threshold\": mia_after['threshold']\n",
+    "        },\n",
+    "        \"privacy_gain\": {\n",
+    "            \"accuracy_improvement\": float(privacy_gain_accuracy),\n",
+    "            \"tpr_reduction\": float(privacy_gain_tpr),\n",
+    "            \"fpr_increase\": float(privacy_gain_fpr),\n",
+    "            \"non_member_confidence_reduction\": float(non_member_conf_improvement)\n",
+    "        }\n",
+    "    }\n",
+    "}"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 32,
+   "id": "2d707f6a",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Results saved to results/unlearning_results_1768718264.json\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Create results directory\n",
+    "os.makedirs(\"results\", exist_ok=True)\n",
+    "\n",
+    "filename = f\"results/unlearning_results_{int(time.time())}.json\"\n",
+    "\n",
+    "with open(filename, \"w\") as f:\n",
+    "    json.dump(results, f, indent=4)\n",
+    "\n",
+    "print(f\"Results saved to {filename}\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "muvenv",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.4"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
