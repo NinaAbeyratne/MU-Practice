@@ -1,0 +1,142 @@
+{
+    "experiment_info": {
+        "timestamp": "2026-03-12T15:21:14.594362",
+        "dataset": "CIFAR10",
+        "model": "SimpleCNN",
+        "deletion_ratio": 0.01,
+        "device": "cpu",
+        "seed": 999
+    },
+    "first_epoch_reversal": {
+        "method": "first_epoch_reversal",
+        "description": "Revert to early checkpoint and retrain on retain set",
+        "hyperparameters": {
+            "rewind_epoch": 0,
+            "total_training_epochs": 10,
+            "retrain_epochs": 3,
+            "optimizer": "Adam",
+            "learning_rate": 0.001,
+            "batch_size": 64,
+            "loss_function": "CrossEntropyLoss"
+        },
+        "metrics": {
+            "deleted_loss": 1.0914854183793068,
+            "deleted_accuracy": 0.618,
+            "retained_loss": 0.7859301280990744,
+            "retained_accuracy": 0.7341212121212122
+        },
+        "per_class_accuracy": {
+            "retain_set": {
+                "0": 0.6765836875126493,
+                "1": 0.8473960436011304,
+                "2": 0.6663302381913605,
+                "3": 0.4280234201494044,
+                "4": 0.7443032869530147,
+                "5": 0.6915604128718883,
+                "6": 0.788123611391638,
+                "7": 0.8014928384103288,
+                "8": 0.8585612968591692,
+                "9": 0.8389505549949546
+            },
+            "delete_set": {
+                "0": 0.5084745762711864,
+                "1": 0.7608695652173914,
+                "2": 0.5869565217391305,
+                "3": 0.2978723404255319,
+                "4": 0.5121951219512195,
+                "5": 0.5084745762711864,
+                "6": 0.7346938775510204,
+                "7": 0.6744186046511628,
+                "8": 0.7384615384615385,
+                "9": 0.8666666666666667
+            }
+        },
+        "per_class_forgetting_score": {
+            "0": 0.2542372881355932,
+            "1": 0.17391304347826086,
+            "2": 0.15217391304347816,
+            "3": 0.5319148936170213,
+            "4": 0.2195121951219512,
+            "5": 0.18644067796610175,
+            "6": -0.04081632653061229,
+            "7": 0.16279069767441867,
+            "8": 0.12307692307692308,
+            "9": 0.0888888888888889
+        },
+        "per_class_utility_loss": {
+            "0": 0.13094515280307628,
+            "1": 0.039765845781186915,
+            "2": 0.03815098909971737,
+            "3": 0.31576822128003224,
+            "4": 0.03266787658802173,
+            "5": 0.014369560817648286,
+            "6": -0.0828115532215713,
+            "7": 0.005043373007867724,
+            "8": 0.02370820668693019,
+            "9": 0.03652875882946516
+        },
+        "time_seconds": 68.98222804069519,
+        "distance_metrics": {
+            "l2_absolute": 31.002525329589844,
+            "l2_relative": 1.1138785026426221,
+            "metric_definition": "L2 distance from exact retrained model (gold standard)"
+        }
+    },
+    "baseline_model": {
+        "method": "baseline_trained_on_all_data",
+        "description": "Model trained on all data (for MIA comparison)",
+        "metrics": {
+            "deleted_loss": 0.6471353992819786,
+            "deleted_accuracy": 0.802,
+            "retained_loss": 0.6195419910881255,
+            "retained_accuracy": 0.7895353535353535
+        },
+        "per_class_accuracy": {
+            "retain_set": {
+                "0": 0.8075288403157256,
+                "1": 0.8871618893823173,
+                "2": 0.7044812272910779,
+                "3": 0.7437916414294367,
+                "4": 0.7769711635410365,
+                "5": 0.7059299736895366,
+                "6": 0.7053120581700667,
+                "7": 0.8065362114181965,
+                "8": 0.8822695035460993,
+                "9": 0.8754793138244198
+            },
+            "delete_set": {
+                "0": 0.7627118644067796,
+                "1": 0.9347826086956522,
+                "2": 0.7391304347826086,
+                "3": 0.8297872340425532,
+                "4": 0.7317073170731707,
+                "5": 0.6949152542372882,
+                "6": 0.6938775510204082,
+                "7": 0.8372093023255814,
+                "8": 0.8615384615384616,
+                "9": 0.9555555555555556
+            }
+        }
+    },
+    "privacy_evaluation": {
+        "method": "membership_inference_attack",
+        "mia_baseline": {
+            "mia_accuracy": 0.54874,
+            "tpr": 0.5492525252525252,
+            "fpr": 0.502,
+            "auc_roc": null
+        },
+        "mia_unlearned": {
+            "mia_accuracy": 0.51526,
+            "tpr": 0.515090909090909,
+            "fpr": 0.468,
+            "auc_roc": null
+        },
+        "privacy_improvement": 0.033479999999999954
+    },
+    "saved_models": {
+        "baseline_checkpoint": "../models/CIFAR10_early_checkpoint_seed_0999_epoch0.pt",
+        "baseline_full": "../models/CIFAR10_full_model_seed_0999.pt",
+        "unlearned_model": "../models/CIFAR10_reversal_unlearned_seed_0999.pt"
+    }
+}
